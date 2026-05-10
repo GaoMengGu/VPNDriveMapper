@@ -42,10 +42,17 @@ jobs:
           $archiveName = "$env:APP_NAME-$tag.zip"
           $distDir = Join-Path $env:GITHUB_WORKSPACE "dist"
           $releaseDir = Join-Path $env:GITHUB_WORKSPACE "bin\$env:CONFIGURATION"
+          $packageDir = Join-Path $distDir "package"
           $archivePath = Join-Path $distDir $archiveName
 
           New-Item -ItemType Directory -Force -Path $distDir | Out-Null
-          Compress-Archive -Path (Join-Path $releaseDir "*") -DestinationPath $archivePath -Force
+          New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
+
+          Get-ChildItem -Path $releaseDir -File |
+            Where-Object { $_.Extension -ne ".pdb" } |
+            Copy-Item -Destination $packageDir -Force
+
+          Compress-Archive -Path (Join-Path $packageDir "*") -DestinationPath $archivePath -Force
 
           "tag=$tag" >> $env:GITHUB_OUTPUT
           "archive_path=$archivePath" >> $env:GITHUB_OUTPUT
