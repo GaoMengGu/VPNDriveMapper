@@ -1,0 +1,74 @@
+name: Build and Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  APP_NAME: VPNDriveMapper
+  PROJECT_FILE: VPNDriveMapper.csproj
+  CONFIGURATION: Release
+
+jobs:
+  build-release:
+    name: Build Windows release
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build
+        shell: pwsh
+        run: |
+          msbuild $env:PROJECT_FILE `
+            /p:Configuration=$env:CONFIGURATION `
+            /p:Platform="AnyCPU" `
+            /p:RestorePackages=false
+
+      - name: Package
+        id: package
+        shell: pwsh
+        run: |
+          $tag = "v0.1.$env:GITHUB_RUN_NUMBER.$env:GITHUB_RUN_ATTEMPT"
+          $archiveName = "$env:APP_NAME-$tag.zip"
+          $distDir = Join-Path $env:GITHUB_WORKSPACE "dist"
+          $releaseDir = Join-Path $env:GITHUB_WORKSPACE "bin\$env:CONFIGURATION"
+          $archivePath = Join-Path $distDir $archiveName
+
+          New-Item -ItemType Directory -Force -Path $distDir | Out-Null
+          Compress-Archive -Path (Join-Path $releaseDir "*") -DestinationPath $archivePath -Force
+
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "archive_path=$archivePath" >> $env:GITHUB_OUTPUT
+          "archive_name=$archiveName" >> $env:GITHUB_OUTPUT
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.archive_name }}
+          path: ${{ steps.package.outputs.archive_path }}
+
+      - name: Create GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.package.outputs.tag }}
+          ARCHIVE_PATH: ${{ steps.package.outputs.archive_path }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag $env:RELEASE_TAG
+          git push origin $env:RELEASE_TAG
+
+          gh release create $env:RELEASE_TAG $env:ARCHIVE_PATH `
+            --title "$env:APP_NAME $env:RELEASE_TAG" `
+            --notes "Automated release from main at commit $env:GITHUB_SHA."
